@@ -69,6 +69,8 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '6693359099:AAGplQUrNOrUrG9
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text('Bem-vindo! Use /ticket <título> <descrição> para abrir um chamado.')
+    await update.message.reply_text('Certo, me informe seu CPF.')
+    await update.message.reply_text('Qual seria o horário de sua preferência?.')
 
 async def ticket(update: Update, context: CallbackContext) -> None:
     try:
