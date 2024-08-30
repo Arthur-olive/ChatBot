@@ -1,8 +1,15 @@
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackContext
 import requests
+import logging
+import os
 
-# Autenticação na API do GLPI
+# Configuração de logging para depuração
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Função para autenticar na API do GLPI
 def authenticate_glpi(api_url: str, app_token: str, user_token: str) -> str:
     headers = {
         'Content-Type': 'application/json',
@@ -10,14 +17,21 @@ def authenticate_glpi(api_url: str, app_token: str, user_token: str) -> str:
         'Authorization': f'user_token {user_token}',
     }
     
-    response = requests.get(f'{api_url}/initSession', headers=headers)
+    try:
+        response = requests.get(f'{api_url}/initSession', headers=headers, timeout=10)  # Timeout de 10 segundos
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f'Erro ao autenticar: {e}')
+        raise
     
-    if response.status_code != 200:
-        raise Exception(f'Erro ao autenticar: {response.text}')
+    session_token = response.json().get('session_token')
+    if not session_token:
+        logger.error('Sessão não foi iniciada. Token não retornado.')
+        raise Exception('Sessão não foi iniciada. Token não retornado.')
     
-    return response.json().get('session_token')
+    return session_token
 
-# Criação de ticket
+# Função para criar um ticket na API do GLPI
 def create_ticket(api_url: str, session_token: str, app_token: str, title: str, description: str, user_id: str) -> dict:
     headers = {
         'Content-Type': 'application/json',
@@ -33,26 +47,33 @@ def create_ticket(api_url: str, session_token: str, app_token: str, title: str, 
         }
     }
     
-    response = requests.post(f'{api_url}/Ticket', json=data, headers=headers)
+    try:
+        response = requests.post(f'{api_url}/Ticket', json=data, headers=headers)  # Timeout de 10 segundos
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f'Erro ao criar ticket: {e}')
+        raise
     
-    if response.status_code != 201:
-        raise Exception(f'Erro ao criar ticket: {response.text}')
+    result = response.json()
+    if 'id' not in result:
+        logger.error('ID do ticket não retornado.')
+        raise Exception('ID do ticket não retornado.')
     
-    return response.json()
+    return result
 
 # Configurações
-API_URL = 'http://172.10.1.71/glpi/apirest.php/'
-APP_TOKEN = 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1t'
-USER_TOKEN = 'lVCnekYcMtXWnDKA3P5rW2OvhMThhYzB4erEH4Id'
-TELEGRAM_BOT_TOKEN = '6693359099:AAGplQUrNOrUrG9kNcFXacdoQgmEJCNBc7w'
+API_URL = 'http://172.10.1.71/glpi/apirest.php'
+APP_TOKEN = os.getenv('GLPI_APP_TOKEN', 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1t')
+USER_TOKEN = os.getenv('GLPI_USER_TOKEN', 'lVCnekYcMtXWnDKA3P5rW2OvhMThhYzB4erEH4Id')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '6693359099:AAGplQUrNOrUrG9kNcFXacdoQgmEJCNBc7w')
 
-def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text('Bem-vindo! Use /ticket <título> <descrição> para abrir um chamado.')
+async def start(update: Update, context: CallbackContext) -> None:
+    await update.message.reply_text('Bem-vindo! Use /ticket <título> <descrição> para abrir um chamado.')
 
-def ticket(update: Update, context: CallbackContext) -> None:
+async def ticket(update: Update, context: CallbackContext) -> None:
     try:
         if len(context.args) < 2:
-            update.message.reply_text('Uso incorreto. Use /ticket <título> <descrição>.')
+            await update.message.reply_text('Uso incorreto. Use /ticket <título> <descrição>.')
             return
         
         title = context.args[0]
@@ -60,24 +81,23 @@ def ticket(update: Update, context: CallbackContext) -> None:
         
         # Autenticação e abertura de chamado
         session_token = authenticate_glpi(API_URL, APP_TOKEN, USER_TOKEN)
-        response = create_ticket(API_URL, session_token, APP_TOKEN, title, description, lVCnekYcMtXWnDKA3P5rW2OvhMThhYzB4erEH4Id=1)
+        response = create_ticket(API_URL, session_token, APP_TOKEN, title, description, USER_TOKEN)
         
-        update.message.reply_text(f'Chamado criado com sucesso! ID: {response["id"]}')
+        await update.message.reply_text(f'Chamado criado com sucesso! ID: {response["id"]}')
     except Exception as e:
-        update.message.reply_text(f'Ocorreu um erro: {str(e)}')
+        await update.message.reply_text(f'Ocorreu um erro: {str(e)}')
+        logger.error(f'Ocorreu um erro: {str(e)}')
 
 def main():
-    # Inicializa o Updater com o token do bot do Telegram
-    updater = Updater(TELEGRAM_BOT_TOKEN)
+    # Inicializa o Application com o token do bot do Telegram
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
-    dp = updater.dispatcher
+    # Adiciona handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("ticket", ticket))
     
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("ticket", ticket))
-    
-    updater.start_polling()
-    
-    updater.idle()
+    # Inicia o polling
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
