@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackContext, ConversationHandler, MessageHandler, filters
 import requests
 import logging
 import os
@@ -67,20 +67,26 @@ APP_TOKEN = os.getenv('GLPI_APP_TOKEN', 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1
 USER_TOKEN = os.getenv('GLPI_USER_TOKEN', 'lVCnekYcMtXWnDKA3P5rW2OvhMThhYzB4erEH4Id')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '6693359099:AAGplQUrNOrUrG9kNcFXacdoQgmEJCNBc7w')
 
-async def start(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text('Bem-vindo! Use /ticket <título> <descrição> para abrir um chamado.')
-    await update.message.reply_text('Certo, me informe seu CPF.')
-    await update.message.reply_text('Qual seria o horário de sua preferência?.')
+# Estados da Conversa
+CPF, PREFERENCE_HOUR = range(2)
 
-async def ticket(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text('Bem-vindo! Por favor, informe seu CPF.')
+    return CPF
+
+async def receive_cpf(update: Update, context: CallbackContext) -> int:
+    context.user_data['cpf'] = update.message.text
+    await update.message.reply_text('Qual seria o horário de sua preferência?')
+    return PREFERENCE_HOUR
+
+async def receive_preference_hour(update: Update, context: CallbackContext) -> int:
+    cpf = context.user_data.get('cpf')
+    preference_hour = update.message.text
+    
+    title = "Novo Chamado"
+    description = f"CPF: {cpf}\nHorário de preferência: {preference_hour}"
+    
     try:
-        if len(context.args) < 2:
-            await update.message.reply_text('Uso incorreto. Use /ticket <título> <descrição>.')
-            return
-        
-        title = context.args[0]
-        description = ' '.join(context.args[1:])
-        
         # Autenticação e abertura de chamado
         session_token = authenticate_glpi(API_URL, APP_TOKEN, USER_TOKEN)
         response = create_ticket(API_URL, session_token, APP_TOKEN, title, description, USER_TOKEN)
@@ -89,14 +95,25 @@ async def ticket(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         await update.message.reply_text(f'Ocorreu um erro: {str(e)}')
         logger.error(f'Ocorreu um erro: {str(e)}')
+    
+    return ConversationHandler.END
 
 def main():
     # Inicializa o Application com o token do bot do Telegram
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
+    # Cria o ConversationHandler
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            CPF: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_cpf)],
+            PREFERENCE_HOUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_preference_hour)],
+        },
+        fallbacks=[],
+    )
+    
     # Adiciona handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("ticket", ticket))
+    application.add_handler(conv_handler)
     
     # Inicia o polling
     application.run_polling()
