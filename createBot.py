@@ -18,18 +18,16 @@ def authenticate_glpi(api_url: str, app_token: str, user_token: str) -> str:
     }
     
     try:
-        response = requests.get(f'{api_url}/initSession', headers=headers, timeout=10)  # Timeout de 10 segundos
+        response = requests.get(f'{api_url}/initSession', headers=headers, timeout=10)
         response.raise_for_status()
+        session_token = response.json().get('session_token')
+        if not session_token:
+            raise Exception('Sessão não foi iniciada. Token não retornado.')
+        return session_token
     except requests.RequestException as e:
         logger.error(f'Erro ao autenticar: {e}')
         raise
-    
-    session_token = response.json().get('session_token')
-    if not session_token:
-        logger.error('Sessão não foi iniciada. Token não retornado.')
-        raise Exception('Sessão não foi iniciada. Token não retornado.')
-    
-    return session_token
+
 
 # Função para criar um ticket na API do GLPI
 def create_ticket(api_url: str, session_token: str, app_token: str, title: str, description: str, user_id: str) -> dict:
@@ -48,7 +46,7 @@ def create_ticket(api_url: str, session_token: str, app_token: str, title: str, 
     }
     
     try:
-        response = requests.post(f'{api_url}/Ticket', json=data, headers=headers)  # Timeout de 10 segundos
+        response = requests.post(f'{api_url}/Ticket', json=data, headers=headers, timeout=10)
         response.raise_for_status()
     except requests.RequestException as e:
         logger.error(f'Erro ao criar ticket: {e}')
@@ -62,61 +60,82 @@ def create_ticket(api_url: str, session_token: str, app_token: str, title: str, 
     return result
 
 # Configurações
-API_URL = 'http://172.10.1.71/glpi/apirest.php'
+API_URL = 'http://172.20.1.81/index.php'
 APP_TOKEN = os.getenv('GLPI_APP_TOKEN', 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1t')
 USER_TOKEN = os.getenv('GLPI_USER_TOKEN', 'lVCnekYcMtXWnDKA3P5rW2OvhMThhYzB4erEH4Id')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '6693359099:AAGplQUrNOrUrG9kNcFXacdoQgmEJCNBc7w')
 
 # Estados da Conversa
-CPF, PREFERENCE_HOUR = range(2)
+NAME, EMAIL, PREFERENCE_HOUR = range(3)
 
 async def start(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text('Bem-vindo! Por favor, informe seu CPF.')
-    return CPF
+    logger.info('Iniciando conversa: solicitando e-mail.')
+    await update.message.reply_text('Bem-vindo! Por favor, informe seu E-mail.')
+    return EMAIL
 
-async def receive_cpf(update: Update, context: CallbackContext) -> int:
-    context.user_data['cpf'] = update.message.text
-    await update.message.reply_text('Qual seria o horário de sua preferência?')
-    return PREFERENCE_HOUR
+async def receive_email(update: Update, context: CallbackContext) -> int:
+    context.user_data['email'] = update.message.text
+    logger.info(f'E-mail recebido: {context.user_data["email"]}')
+    await update.message.reply_text('Agora, informe seu nome completo:')
+    return NAME
 
-async def receive_preference_hour(update: Update, context: CallbackContext) -> int:
-    cpf = context.user_data.get('cpf')
-    preference_hour = update.message.text
-    
-    title = "Novo Chamado"
-    description = f"CPF: {cpf}\nHorário de preferência: {preference_hour}"
+async def receive_name(update: Update, context: CallbackContext) -> int:
+    context.user_data['name'] = update.message.text
+    logger.info(f'Nome recebido: {context.user_data["name"]}')
     
     try:
-        # Autenticação e abertura de chamado
+        await update.message.reply_text('Qual seria o horário de sua preferência?')
+    except Exception as e:
+        logger.error(f'Erro ao enviar mensagem: {e}')
+    
+    return PREFERENCE_HOUR
+
+
+async def receive_preference_hour(update: Update, context: CallbackContext) -> int:
+    name = context.user_data.get('name')
+    email = context.user_data.get('email')
+    preference_hour = update.message.text
+    logger.info(f'Nome: {name}')
+    logger.info(f'E-mail: {email}')
+    logger.info(f'Horário de preferência: {preference_hour}')
+
+    
+    title = "Novo Chamado"
+    description = f"Nome: {name}\nE-mail: {email}\nHorário de preferência: {preference_hour}"
+    
+    try:
         session_token = authenticate_glpi(API_URL, APP_TOKEN, USER_TOKEN)
         response = create_ticket(API_URL, session_token, APP_TOKEN, title, description, USER_TOKEN)
-        
         await update.message.reply_text(f'Chamado criado com sucesso! ID: {response["id"]}')
+    except requests.RequestException as e:
+        await update.message.reply_text(f'Ocorreu um erro ao se comunicar com a API: {str(e)}')
+        logger.error(f'Ocorreu um erro ao se comunicar com a API: {str(e)}')
     except Exception as e:
-        await update.message.reply_text(f'Ocorreu um erro: {str(e)}')
-        logger.error(f'Ocorreu um erro: {str(e)}')
+        await update.message.reply_text(f'Ocorreu um erro inesperado: {str(e)}')
+        logger.error(f'Ocorreu um erro inesperado: {str(e)}')
     
     return ConversationHandler.END
+
 
 def main():
     # Inicializa o Application com o token do bot do Telegram
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Cria o ConversationHandler
+    # ConversationHandler
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            CPF: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_cpf)],
-            PREFERENCE_HOUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_preference_hour)],
+            EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_email)],
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
+            PREFERENCE_HOUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_preference_hour)]
         },
         fallbacks=[],
     )
     
-    # Adiciona handlers
     application.add_handler(conv_handler)
     
-    # Inicia o polling
     application.run_polling()
+    
 
 if __name__ == '__main__':
     main()
