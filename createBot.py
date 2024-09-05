@@ -60,7 +60,7 @@ def create_ticket(api_url: str, session_token: str, app_token: str, title: str, 
     return result
 
 # Configurações
-API_URL = 'http://172.20.1.81/index.php'
+API_URL = 'http://172.10.1.71/index.php'
 APP_TOKEN = os.getenv('GLPI_APP_TOKEN', 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1t')
 USER_TOKEN = os.getenv('GLPI_USER_TOKEN', 'lVCnekYcMtXWnDKA3P5rW2OvhMThhYzB4erEH4Id')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '6693359099:AAGplQUrNOrUrG9kNcFXacdoQgmEJCNBc7w')
