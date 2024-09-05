@@ -4,10 +4,12 @@ import requests
 import logging
 import os
 
+
 # Configuração de logging para depuração
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 # Função para autenticar na API do GLPI
 def authenticate_glpi(api_url: str, app_token: str, user_token: str) -> str:
@@ -18,8 +20,10 @@ def authenticate_glpi(api_url: str, app_token: str, user_token: str) -> str:
     }
     
     try:
-        response = requests.get(f'{api_url}/initSession', headers=headers, timeout=10)
+        logger.info(f'Tentando conectar à API em {api_url}initSession')
+        response = requests.get(f'{api_url}/initSession', headers=headers, timeout=60)
         response.raise_for_status()
+        logger.info('Resposta recebida da API.')
         session_token = response.json().get('session_token')
         if not session_token:
             raise Exception('Sessão não foi iniciada. Token não retornado.')
@@ -46,8 +50,10 @@ def create_ticket(api_url: str, session_token: str, app_token: str, title: str, 
     }
     
     try:
-        response = requests.post(f'{api_url}/Ticket', json=data, headers=headers, timeout=10)
+        logger.info(f'Tentando criar ticket na API em {api_url}/Ticket')
+        response = requests.post(f'{api_url}/Ticket', json=data, headers=headers, timeout=60)
         response.raise_for_status()
+        logger.info('Ticket criado com sucesso.')
     except requests.RequestException as e:
         logger.error(f'Erro ao criar ticket: {e}')
         raise
@@ -59,11 +65,13 @@ def create_ticket(api_url: str, session_token: str, app_token: str, title: str, 
     
     return result
 
-# Configurações
-API_URL = 'http://172.10.1.71/index.php'
-APP_TOKEN = os.getenv('GLPI_APP_TOKEN', 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1t')
-USER_TOKEN = os.getenv('GLPI_USER_TOKEN', 'lVCnekYcMtXWnDKA3P5rW2OvhMThhYzB4erEH4Id')
+
+# Configurações - TOKENS
+API_URL = 'http://172.10.1.71/glpi/apirest.php/'
+APP_TOKEN = os.getenv('GLPI_APP_TOKEN', 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1t ')
+USER_TOKEN = os.getenv('GLPI_USER_TOKEN', 'jSTThxI6nBdLCHKg0a9MDLzVHJHL7WDGlcDf0177')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '6693359099:AAGplQUrNOrUrG9kNcFXacdoQgmEJCNBc7w')
+
 
 # Estados da Conversa
 NAME, EMAIL, PREFERENCE_HOUR = range(3)
