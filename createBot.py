@@ -12,15 +12,13 @@ logger = logging.getLogger(__name__)
 
 
 # Função para autenticar na API do GLPI
-def authenticate_glpi(api_url: str, app_token: str, user_token: str) -> str:
+def authenticate_glpi(api_url, user_token):
     headers = {
-        'Content-Type': 'application/json',
-        'App-Token': app_token,
         'Authorization': f'user_token {user_token}',
     }
     
     try:
-        logger.info(f'Tentando conectar à API em {api_url}initSession')
+        logger.info(f'Tentando conectar à API em {api_url}/initSession')
         response = requests.get(f'{api_url}/initSession', headers=headers, timeout=60)
         response.raise_for_status()
         logger.info('Resposta recebida da API.')
@@ -32,15 +30,20 @@ def authenticate_glpi(api_url: str, app_token: str, user_token: str) -> str:
         logger.error(f'Erro ao autenticar: {e}')
         raise
 
+# Função para criar uma sessão na API do GLPI
+def create_session(api_url, user_token):
+    session_token = authenticate_glpi(api_url, user_token)
+    return session_token
+
 
 # Função para criar um ticket na API do GLPI
 def create_ticket(api_url: str, session_token: str, app_token: str, title: str, description: str, user_id: str) -> dict:
     headers = {
         'Content-Type': 'application/json',
         'App-Token': app_token,
-        'Session-Token': session_token
+        'Authorization': f'session_token {session_token}',
     }
-    
+
     data = {
         "input": {
             "name": title,
@@ -68,10 +71,11 @@ def create_ticket(api_url: str, session_token: str, app_token: str, title: str, 
 
 # Configurações - TOKENS
 API_URL = 'http://172.10.1.71/glpi/apirest.php/'
+API_TOKEN = os.getenv('GLPI_API_TOKEN', 'Jvf5uHEb31AML874hsuk35hevDt8wjGKBWXZvsf1')
 APP_TOKEN = os.getenv('GLPI_APP_TOKEN', 'suSIv5m8fW300bMnYj12TIE7Bcp1JU0SantcPr1t ')
 USER_TOKEN = os.getenv('GLPI_USER_TOKEN', 'jSTThxI6nBdLCHKg0a9MDLzVHJHL7WDGlcDf0177')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '6693359099:AAGplQUrNOrUrG9kNcFXacdoQgmEJCNBc7w')
-
+ 
 
 # Estados da Conversa
 NAME, EMAIL, PREFERENCE_HOUR = range(3)
@@ -98,7 +102,6 @@ async def receive_name(update: Update, context: CallbackContext) -> int:
     
     return PREFERENCE_HOUR
 
-
 async def receive_preference_hour(update: Update, context: CallbackContext) -> int:
     name = context.user_data.get('name')
     email = context.user_data.get('email')
@@ -112,7 +115,7 @@ async def receive_preference_hour(update: Update, context: CallbackContext) -> i
     description = f"Nome: {name}\nE-mail: {email}\nHorário de preferência: {preference_hour}"
     
     try:
-        session_token = authenticate_glpi(API_URL, APP_TOKEN, USER_TOKEN)
+        session_token = authenticate_glpi(API_URL, USER_TOKEN)
         response = create_ticket(API_URL, session_token, APP_TOKEN, title, description, USER_TOKEN)
         await update.message.reply_text(f'Chamado criado com sucesso! ID: {response["id"]}')
     except requests.RequestException as e:
